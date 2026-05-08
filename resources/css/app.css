@@ -1,0 +1,108 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../**/*.blade.php';
+@source '../**/*.js';
+
+@theme {
+    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+    
+    /* Dark theme colors */
+    --color-charcoal-950: #0a0b0d;
+    --color-charcoal-900: #13151a;
+    --color-charcoal-800: #1a1d24;
+    --color-charcoal-700: #252930;
+    --color-charcoal-600: #30353e;
+    
+    /* Light theme colors */
+    --color-light-50: #f8fafc;
+    --color-light-100: #f1f5f9;
+    --color-light-200: #e2e8f0;
+    --color-light-300: #cbd5e1;
+    --color-light-400: #94a3b8;
+    
+    --color-accent-blue: #3b82f6;
+    --color-accent-blue-dark: #2563eb;
+    
+    --color-bullish: #10b981;
+    --color-bullish-muted: #059669;
+    
+    --color-bearish: #ef4444;
+    --color-bearish-muted: #dc2626;
+}
+
+/* Theme transitions - solo para elementos específicos */
+body, .glass, .card-hover {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Custom scrollbar - Dark */
+.dark ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+    background: var(--color-charcoal-900);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background: var(--color-charcoal-600);
+    border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-charcoal-500);
+}
+
+/* Custom scrollbar - Light */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--color-light-100);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-light-300);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-light-400);
+}
+
+/* Glassmorphism effect - Dark */
+.dark .glass {
+    background: rgba(26, 29, 36, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Glassmorphism effect - Light */
+.glass {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Premium card hover effect */
+.card-hover {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dark .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+}
+
+.card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.05);
+}

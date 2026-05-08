@@ -1,0 +1,164 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Livewire;
+
+use App\Services\SchwabOptionChainService;
+use App\Services\SchwabAuthService;
+use Livewire\Component;
+use Livewire\Attributes\On;
+use Livewire\Attributes\Computed;
+use Livewire\Attributes\Lazy;
+use Illuminate\Support\Facades\Http;
+
+#[Lazy]
+class UnusualOptionsActivity extends Component
+{
+    public string $ticker;
+    public int $minVolume = 5; // Minimum volume to be considered unusual
+    public string $filter = 'all'; // all, calls, puts
+    public string $dteFilter = 'all'; // 0dte, 1-7dte, 8-30dte, 31-60dte, 60+dte, all
+    public array $capturedTrades = []; // Store captured trades
+    public array $lastVolumes = []; // Track last known volumes
+
+    public function mount(string $ticker): void
+    {
+        $this->ticker = strtoupper($ticker);
+        // Don't load from session - always start fresh
+        $this->capturedTrades = [];
+        $this->lastVolumes = [];
+    }
+    
+    public function placeholder()
+    {
+        return <<<'HTML'
+        <div class="bg-slate-800/50 rounded-lg p-8 border border-slate-700/50">
+            <div class="flex items-center justify-center space-x-3">
+                <svg class="animate-spin h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-sm text-slate-400">Loading unusual options activity...</span>
+            </div>
+        </div>
+        HTML;
+    }
+
+    public function setFilter(string $filter): void
+    {
+        $this->filter = $filter;
+    }
+
+    public function setDteFilter(string $dteFilter): void
+    {
+        $this->dteFilter = $dteFilter;
+    }
+
+    public function clearTrades(): void
+    {
+        $this->capturedTrades = [];
+        $this->lastVolumes = [];
+        session()->forget("unusual_trades_{$this->ticker}");
+        session()->forget("last_volumes_{$this->ticker}");
+    }
+
+    #[Computed]
+    public function unusualActivity()
+    {
+        // Just return filtered trades from already captured data
+        // The actual detection happens in the polling cycle
+        return $this->getFilteredTrades();
+    }
+    
+    #[On('poll')]
+    public function pollForNewTrades()
+    {
+        try {
+            // Get API symbol format
+            $apiSymbol = $this->getApiSymbol();
+
+            $optionService = SchwabOptionChainService::make();
+            $optionChain = $optionService->getOptionChain('$'.$apiSymbol);
+
+            if (!$optionChain) {
+                return;
+            }
+
+            // Get real-time price from quotes API (more accurate than option chain)
+            $realPrice = $this->getRealTimePrice();
+
+            // If still 0, use option chain price as last resort
+            if ($realPrice == 0) {
+                $realPrice = $optionChain->underlyingPrice ?? 0;
+            }
+
+            // Detect new unusual trades
+            $this->detectNewTrades($optionChain, $realPrice);
+
+        } catch (\Exception $e) {
+            // Silent fail
+        }
+    }
+
+    private function getApiSymbol(): string
+    {
+        // For option chain, SPX doesn't need $ prefix (unlike quotes API)
+        // Just return the ticker as-is
+        return $this->ticker;
+    }
+
+    private function getRealTimePrice(): float
+    {
+        try {
+            $authService = app(\App\Services\SchwabAuthService::class);
+            $token = $authService->getAccessToken();
+
+            if (!$token) {
+                return 0;
+            }
+
+            // Get API symbol (handle indices with $ prefix)
+            $apiSymbol = $this->getApiSymbol();
+
+            $response = Http::withToken($token)
+                ->timeout(10)
+                ->get(config('services.schwab.base_url') . '/marketdata/v1/quotes', [
+                    'symbols' => $apiSymbol,
+                ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                $symbolData = $data[$apiSymbol] ?? null;
+
+                if ($symbolData && isset($symbolData['quote'])) {
+                    return (float)($symbolData['quote']['lastPrice'] ?? 0);
+                }
+            }
+{{ ... }}
+            'delta' => $contract->delta ?? 0,
+            'timestamp' => $timestamp ?? now()->timestamp,
+            'capturedAt' => now()->format('H:i:s'),
+        ];
+
+        // Trade captured
+        \Log::info('Captured trade', [
+            'ticker' => $this->ticker,
+            'strike' => $strikePrice,
+            'type' => $type,
+            'volume' => $volume,
+            'contractId' => $contractId,
+        ]);
+
+        return $result;
+    }
+
+    public function render()
+{{ ... }}
+        $unusualActivity = $this->unusualActivity;
+
+        return view('livewire.unusual-options-activity', [
+            'unusualActivity' => $unusualActivity,
+        ]);
+    }
+}

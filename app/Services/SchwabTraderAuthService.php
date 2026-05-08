@@ -1,0 +1,180 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+
+class SchwabTraderAuthService
+{
+    private const TOKEN_CACHE_KEY = 'schwab_trader_access_token';
+    private const REFRESH_TOKEN_CACHE_KEY = 'schwab_trader_refresh_token';
+    private const TOKEN_EXPIRY_BUFFER = 300; // 5 minutes
+
+    public function __construct(
+        private readonly ?string $appKey,
+        private readonly ?string $appSecret,
+        private readonly ?string $callbackUrl,
+        private readonly ?string $baseUrl,
+    ) {}
+
+    public static function make(): self
+    {
+        return new self(
+            appKey: config('services.schwab_trader.app_key', ''),
+            appSecret: config('services.schwab_trader.app_secret', ''),
+            callbackUrl: config('services.schwab_trader.callback_url', ''),
+            baseUrl: config('services.schwab_trader.base_url', 'https://api.schwabapi.com'),
+        );
+    }
+
+    /**
+     * Get valid access token (from cache or refresh)
+     */
+    public function getAccessToken(): ?string
+    {
+        if (!$this->appKey || !$this->appSecret) {
+            return null; // Not configured yet
+        }
+        
+        $token = Cache::get(self::TOKEN_CACHE_KEY);
+        
+        if (!$token) {
+            // Try to refresh the token
+            $token = $this->refreshAccessToken();
+        }
+        
+        return $token;
+    }
+
+    /**
+     * Generate authorization URL for OAuth flow
+     */
+    public function getAuthorizationUrl(): string
+    {
+        if (!$this->appKey || !$this->callbackUrl) {
+            return '#'; // Not configured yet
+        }
+        
+        $params = http_build_query([
+            'response_type' => 'code',
+            'client_id' => $this->appKey,
+            'redirect_uri' => $this->callbackUrl,
+            'scope' => 'api', // Trader API scope
+        ]);
+
+        return "https://api.schwabapi.com/v1/oauth/authorize?{$params}";
+    }
+
+    /**
+     * Exchange authorization code for access token
+     */
+    public function exchangeCodeForToken(string $code): ?string
+    {
+        $credentials = base64_encode("{$this->appKey}:{$this->appSecret}");
+        
+        $response = Http::asForm()
+            ->withHeaders([
+                'Authorization' => "Basic {$credentials}",
+            ])
+            ->post("https://api.schwabapi.com/v1/oauth/token", [
+                'grant_type' => 'authorization_code',
+                'code' => $code,
+                'redirect_uri' => $this->callbackUrl,
+            ]);
+
+        if ($response->successful()) {
+            $data = $response->json();
+            $expiresIn = $data['expires_in'] ?? 1800; // 30 minutes
+            $refreshExpiresIn = $data['refresh_token_expires_in'] ?? 604800; // 7 days
+            
+            // Store access token
+            Cache::put(
+                self::TOKEN_CACHE_KEY,
+                $data['access_token'],
+                now()->addSeconds($expiresIn - self::TOKEN_EXPIRY_BUFFER)
+            );
+            
+            // Store refresh token
+            if (isset($data['refresh_token'])) {
+                Cache::put(
+                    self::REFRESH_TOKEN_CACHE_KEY,
+                    $data['refresh_token'],
+                    now()->addSeconds($refreshExpiresIn - self::TOKEN_EXPIRY_BUFFER)
+                );
+            }
+
+            return $data['access_token'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Refresh access token using refresh token
+     */
+    private function refreshAccessToken(): ?string
+    {
+        $refreshToken = Cache::get(self::REFRESH_TOKEN_CACHE_KEY);
+        
+        if (!$refreshToken) {
+            return null;
+        }
+        
+        $credentials = base64_encode("{$this->appKey}:{$this->appSecret}");
+        
+        $response = Http::asForm()
+            ->withHeaders([
+                'Authorization' => "Basic {$credentials}",
+            ])
+            ->post("https://api.schwabapi.com/v1/oauth/token", [
+                'grant_type' => 'refresh_token',
+                'refresh_token' => $refreshToken,
+            ]);
+
+        if ($response->successful()) {
+            $data = $response->json();
+            $expiresIn = $data['expires_in'] ?? 1800; // 30 minutes
+            
+            // Store new access token
+            Cache::put(
+                self::TOKEN_CACHE_KEY,
+                $data['access_token'],
+                now()->addSeconds($expiresIn - self::TOKEN_EXPIRY_BUFFER)
+            );
+            
+            // Update refresh token if provided
+            if (isset($data['refresh_token'])) {
+                $refreshExpiresIn = $data['refresh_token_expires_in'] ?? 604800; // 7 days
+                Cache::put(
+                    self::REFRESH_TOKEN_CACHE_KEY,
+                    $data['refresh_token'],
+                    now()->addSeconds($refreshExpiresIn - self::TOKEN_EXPIRY_BUFFER)
+                );
+            }
+
+            return $data['access_token'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Clear cached tokens
+     */
+    public function clearToken(): void
+    {
+        Cache::forget(self::TOKEN_CACHE_KEY);
+        Cache::forget(self::REFRESH_TOKEN_CACHE_KEY);
+    }
+    
+    /**
+     * Check if we have a valid refresh token
+     */
+    public function hasRefreshToken(): bool
+    {
+        return Cache::has(self::REFRESH_TOKEN_CACHE_KEY);
+    }
+}
