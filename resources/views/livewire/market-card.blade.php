@@ -6,8 +6,8 @@
                     <h3 class="text-2xl font-bold text-white">{{ $symbol->ticker }}</h3>
                     <p class="text-sm text-slate-400 mt-1">{{ $symbol->name }}</p>
                 </div>
-                
-                <button 
+
+                <button
                     wire:click="refresh"
                     class="p-2 rounded-lg hover:bg-slate-800/50 transition-colors text-slate-400 hover:text-white"
                 >
@@ -52,7 +52,7 @@
                 </div>
 
                 <!-- Action Button -->
-                <a href="{{ route('symbol.show', $symbol->ticker) }}" 
+                <a href="{{ route('symbol.show', $symbol->ticker) }}"
                    class="block w-full mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg text-center transition-colors">
                     View Details
                 </a>

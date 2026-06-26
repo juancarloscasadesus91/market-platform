@@ -9,6 +9,9 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use App\Services\SchwabAuthService;
 use App\Services\SchwabTraderAuthService;
+use App\Models\ContractSnapshot;
+use App\Models\ContractPrint;
+use Carbon\Carbon;
 
 class LiveOptionMonitor extends Component
 {
@@ -371,6 +374,171 @@ class LiveOptionMonitor extends Component
         }
     }
 
+    public function loadContractsByDTE(int $minDTE, int $maxDTE, int $strikesCount): void
+    {
+        if (!$this->accessToken) {
+            $this->error = 'No API token available';
+            return;
+        }
+
+        try {
+            $apiSymbol = $this->getApiSymbol();
+            $fromDate  = now()->addDays($minDTE)->format('Y-m-d');
+            $toDate    = now()->addDays($maxDTE)->format('Y-m-d');
+            // Schwab requires toDate > fromDate strictly
+            if ($toDate <= $fromDate) {
+                $toDate = now()->addDays($maxDTE + 1)->format('Y-m-d');
+            }
+
+            $response = Http::timeout(15)->withHeaders([
+                'Authorization' => 'Bearer ' . $this->accessToken,
+                'Accept'        => 'application/json',
+            ])->get('https://api.schwabapi.com/marketdata/v1/chains', [
+                'symbol'                 => $apiSymbol,
+                'contractType'           => 'ALL',
+                'includeUnderlyingQuote' => 'true',
+                'fromDate'               => $fromDate,
+                'toDate'                 => $toDate,
+            ]);
+
+            if (!$response->successful()) {
+                $this->error = 'Failed to fetch option chain: ' . $response->status();
+                return;
+            }
+
+            $data = $response->json();
+
+            $underlyingPrice = $data['underlyingPrice'] ?? null;
+
+            // Fall back to quotes API when the chains response doesn't include the underlying price
+            if (!$underlyingPrice) {
+                $underlyingPrice = $this->getUnderlyingPrice();
+            }
+
+            if (!$underlyingPrice) {
+                $this->error = 'Could not determine underlying price';
+                return;
+            }
+
+            // The real max date we want (before the buffer day)
+            $maxDate = now()->addDays($maxDTE)->format('Y-m-d');
+
+            $contracts   = [];
+            $seenSymbols = [];
+
+            foreach (['callExpDateMap' => 'C', 'putExpDateMap' => 'P'] as $mapKey => $typeChar) {
+                if (!isset($data[$mapKey])) continue;
+
+                // Group expiration keys by their base date (strip AM/PM suffix after ":")
+                // and filter out any dates beyond maxDate
+                $strikesByDate = [];
+                foreach ($data[$mapKey] as $expDate => $strikeMap) {
+                    $dateOnly = explode(':', $expDate)[0]; // e.g. "2025-05-11"
+                    if ($dateOnly > $maxDate) continue;    // skip dates beyond requested range
+                    if ($dateOnly < $fromDate) continue;   // skip dates before requested range
+
+                    if (!isset($strikesByDate[$dateOnly])) {
+                        $strikesByDate[$dateOnly] = $strikeMap;
+                    } else {
+                        // Merge AM/PM strikes — first seen wins per strike
+                        foreach ($strikeMap as $strike => $contractList) {
+                            if (!isset($strikesByDate[$dateOnly][$strike])) {
+                                $strikesByDate[$dateOnly][$strike] = $contractList;
+                            }
+                        }
+                    }
+                }
+
+                foreach ($strikesByDate as $dateOnly => $strikeMap) {
+                    $allStrikes = array_keys($strikeMap);
+                    sort($allStrikes, SORT_NUMERIC);
+
+                    // Find the ATM index (closest strike to underlying)
+                    $atmIndex = 0;
+                    $minDiff  = PHP_FLOAT_MAX;
+                    foreach ($allStrikes as $i => $strike) {
+                        $diff = abs((float)$strike - $underlyingPrice);
+                        if ($diff < $minDiff) {
+                            $minDiff  = $diff;
+                            $atmIndex = $i;
+                        }
+                    }
+
+                    $low  = max(0, $atmIndex - $strikesCount);
+                    $high = min(count($allStrikes) - 1, $atmIndex + $strikesCount);
+
+                    for ($i = $low; $i <= $high; $i++) {
+                        $strikeKey    = $allStrikes[$i];
+                        $contractList = $strikeMap[$strikeKey] ?? [];
+                        if (!empty($contractList)) {
+                            $symbol = $contractList[0]['symbol'] ?? null;
+                            if ($symbol && !isset($seenSymbols[$symbol])) {
+                                $seenSymbols[$symbol] = true;
+                                $contracts[] = '.' . $symbol;
+                            }
+                        }
+                    }
+                }
+            }
+
+            $this->error = null;
+
+            \Log::info('LiveOptionMonitor: loadContractsByDTE result', [
+                'count'    => count($contracts),
+                'minDTE'   => $minDTE,
+                'maxDTE'   => $maxDTE,
+                'strikes'  => $strikesCount,
+                'atm'      => $underlyingPrice,
+            ]);
+
+            $this->dispatch('contracts-bulk-loaded', symbols: $contracts);
+
+        } catch (\Exception $e) {
+            $this->error = 'Error loading contracts: ' . $e->getMessage();
+            \Log::error('LiveOptionMonitor: loadContractsByDTE exception', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function getUnderlyingPrice(): float
+    {
+        try {
+            // The quotes API uses the ticker as-is (with $ for indices)
+            $quoteSymbol = $this->getApiSymbol();
+
+            $response = Http::timeout(10)->withHeaders([
+                'Authorization' => 'Bearer ' . $this->accessToken,
+                'Accept'        => 'application/json',
+            ])->get('https://api.schwabapi.com/marketdata/v1/quotes', [
+                'symbols' => $quoteSymbol,
+            ]);
+
+            if ($response->successful()) {
+                $data       = $response->json();
+                $symbolData = $data[$quoteSymbol] ?? null;
+
+                if ($symbolData && isset($symbolData['quote']['lastPrice'])) {
+                    return (float) $symbolData['quote']['lastPrice'];
+                }
+
+                // Some indices return mark instead
+                if ($symbolData && isset($symbolData['quote']['mark'])) {
+                    return (float) $symbolData['quote']['mark'];
+                }
+            }
+
+            \Log::warning('LiveOptionMonitor: getUnderlyingPrice failed', [
+                'status' => $response->status(),
+                'symbol' => $quoteSymbol,
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('LiveOptionMonitor: getUnderlyingPrice exception', ['error' => $e->getMessage()]);
+        }
+
+        return 0.0;
+    }
+
     private function getApiSymbol(): string
     {
         // For option chains, SPX needs the $ prefix
@@ -378,6 +546,91 @@ class LiveOptionMonitor extends Component
             return '$SPX';
         }
         return $this->ticker;
+    }
+
+    public function loadHistoricalSnapshots(array $symbols)
+    {
+        try {
+            // Get all snapshots from today (start of market day)
+            $since = Carbon::now()->startOfDay();
+
+            // Normalize symbols - remove leading dot and normalize spacing
+            $normalizedSymbols = array_map(function($symbol) {
+                // Remove leading dot if present
+                $symbol = ltrim($symbol, '.');
+                // Normalize spacing: replace single space with double space to match DB format
+                // DB format: "SPXW  260512C07310000" (two spaces)
+                // Frontend: "SPXW 260512C07355000" (one space)
+                $symbol = preg_replace('/\s+/', '  ', $symbol);
+                return $symbol;
+            }, $symbols);
+
+            \Log::info('Original symbols:', $symbols);
+            \Log::info('Normalized symbols:', $normalizedSymbols);
+
+            // Get the latest snapshot for each symbol to get current totals
+            $latestSnapshots = ContractSnapshot::whereIn('symbol', $normalizedSymbols)
+                ->where('snapshot_at', '>=', $since)
+                ->orderBy('snapshot_at', 'desc')
+                ->get()
+                ->groupBy('symbol')
+                ->map->first();
+
+            \Log::info('Found snapshots:', ['count' => $latestSnapshots->count()]);
+
+            // Create mapping from normalized to original symbols
+            $symbolMap = array_combine($normalizedSymbols, $symbols);
+
+            // Format snapshots for frontend
+            $result = [];
+            foreach ($latestSnapshots as $normalizedSymbol => $snapshot) {
+                if ($snapshot) {
+                    // Use original symbol as key so frontend can match it
+                    $originalSymbol = $symbolMap[$normalizedSymbol] ?? $normalizedSymbol;
+
+                    // The latest snapshot already has accumulated buy/sell premium from the cron
+                    $result[$originalSymbol] = [
+                        'total_volume' => $snapshot->total_volume,
+                        'total_premium' => $snapshot->total_premium,
+                        'buy_premium' => $snapshot->buy_premium,
+                        'sell_premium' => $snapshot->sell_premium,
+                        'net_premium' => $snapshot->net_premium,
+                        'last_price' => $snapshot->last_price,
+                        'snapshot_at' => $snapshot->snapshot_at->toIso8601String(),
+                    ];
+                }
+            }
+
+            return $result;
+        } catch (\Exception $e) {
+            \Log::error('Error loading historical snapshots: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    public function loadHistoricalPrints(string $symbol, int $limit = 100)
+    {
+        try {
+            // Get prints from today
+            $since = Carbon::now()->startOfDay();
+
+            $prints = ContractPrint::getHistory($symbol, $since, null, $limit);
+
+            // Format prints for frontend
+            return $prints->map(function ($print) {
+                return [
+                    'time' => $print->print_time->format('H:i:s'),
+                    'price' => (float) $print->price,
+                    'size' => $print->size,
+                    'side' => $print->side,
+                    'premium' => $print->premium,
+                    'volume' => $print->cumulative_volume,
+                ];
+            })->toArray();
+        } catch (\Exception $e) {
+            \Log::error('Error loading historical prints: ' . $e->getMessage());
+            return [];
+        }
     }
 
     public function render()

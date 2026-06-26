@@ -12,25 +12,35 @@ export class TradingChart {
             macd: null,
             bb: null
         };
-        
+
         this.init();
     }
 
     init() {
-        // Get container width, ensure it's not too large
-        const containerWidth = Math.min(this.container.clientWidth, window.innerWidth - 100);
-        
-        // Create chart with responsive width
+        const etFmt = ts => new Date(ts * 1000).toLocaleTimeString('en-US', {
+            timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false,
+        });
+        const etTickFmt = (ts, tickType) => {
+            const d = new Date(ts * 1000);
+            const opts = { timeZone: 'America/New_York' };
+            // TickMarkType: 0=Year, 1=Month, 2=DayOfMonth, 3=Time, 4=TimeWithSeconds
+            if (tickType <= 1) return d.toLocaleDateString('en-US', { ...opts, year: 'numeric', month: 'short' });
+            if (tickType === 2) return d.toLocaleDateString('en-US', { ...opts, month: 'short', day: 'numeric' });
+            return d.toLocaleTimeString('en-US', { ...opts, hour: '2-digit', minute: '2-digit', hour12: false });
+        };
+
         this.chart = createChart(this.container, {
-            width: containerWidth,
-            height: 400,
+            autoSize: true,
+            localization: {
+                timeFormatter: etFmt,
+            },
             layout: {
                 background: { color: '#0a0b0d' },
                 textColor: '#94a3b8',
             },
             grid: {
                 vertLines: { color: '#1e293b' },
-                horzLines: { color: '#1e293b' },
+                horzLines: { visible: false },
             },
             crosshair: {
                 mode: 1,
@@ -54,6 +64,7 @@ export class TradingChart {
                 secondsVisible: false,
                 barSpacing: 3,
                 minBarSpacing: 0.5,
+                tickMarkFormatter: etTickFmt,
             },
         });
 
@@ -65,6 +76,8 @@ export class TradingChart {
             borderDownColor: '#ef4444',
             wickUpColor: '#10b981',
             wickDownColor: '#ef4444',
+            priceLineVisible: false,
+            lastValueVisible: false,
         });
 
         this.candleSeries.setData(this.data);
@@ -90,22 +103,18 @@ export class TradingChart {
 
         this.volumeSeries.setData(volumeData);
 
-        // Handle resize - constrain width
-        const resizeObserver = new ResizeObserver(entries => {
-            if (entries.length === 0) return;
-            const newWidth = Math.min(entries[0].contentRect.width, window.innerWidth - 100);
-            this.chart.applyOptions({ width: newWidth });
-        });
-        resizeObserver.observe(this.container);
-
         // Fit content
         this.chart.timeScale().fitContent();
+    }
+
+    destroy() {
+        try { this.chart.remove(); } catch (e) { /* already disposed */ }
     }
 
     addSMA(period = 20) {
         const closes = this.data.map(d => d.close);
         const smaValues = SMA.calculate({ period, values: closes });
-        
+
         const smaData = smaValues.map((value, index) => ({
             time: this.data[index + period - 1].time,
             value: value
@@ -124,10 +133,52 @@ export class TradingChart {
         this.indicators.sma.setData(smaData);
     }
 
+    addEMAs(configs = []) {
+        if (!this.indicators.emaLines) this.indicators.emaLines = [];
+        this.indicators.emaLines.forEach(s => { try { this.chart.removeSeries(s); } catch(e){} });
+        this.indicators.emaLines = [];
+
+        configs.forEach(({ period, color, title }) => {
+            if (this.data.length < 2) return;
+            const k = 2 / (period + 1);
+            let ema = this.data[0].close;
+            const lineData = this.data.map(d => {
+                ema = k * d.close + (1 - k) * ema;
+                return { time: d.time, value: ema };
+            });
+            const series = this.chart.addLineSeries({
+                color,
+                lineWidth: 2,
+                title: title || `EMA${period}`,
+                priceLineVisible: false,
+                lastValueVisible: true,
+                crosshairMarkerVisible: false,
+            });
+            series.setData(lineData);
+            this.indicators.emaLines.push(series);
+        });
+    }
+
+    toggleVolume(visible) {
+        this.volumeSeries.applyOptions({ visible });
+    }
+
+    toggleBB(visible) {
+        if (this.indicators.bb) {
+            this.indicators.bb.forEach(s => s.applyOptions({ visible }));
+        }
+    }
+
+    toggleEMAs(visible) {
+        if (this.indicators.emaLines) {
+            this.indicators.emaLines.forEach(s => s.applyOptions({ visible }));
+        }
+    }
+
     addEMA(period = 20) {
         const closes = this.data.map(d => d.close);
         const emaValues = EMA.calculate({ period, values: closes });
-        
+
         const emaData = emaValues.map((value, index) => ({
             time: this.data[index + period - 1].time,
             value: value
@@ -173,23 +224,20 @@ export class TradingChart {
             this.indicators.bb.forEach(series => this.chart.removeSeries(series));
         }
 
+        const bbOpts = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
+
         const upperSeries = this.chart.addLineSeries({
-            color: '#8b5cf6',
-            lineWidth: 1,
-            lineStyle: 2,
+            color: '#8b5cf6', lineWidth: 1, lineStyle: 2, ...bbOpts,
         });
         upperSeries.setData(upperData);
 
         const middleSeries = this.chart.addLineSeries({
-            color: '#8b5cf6',
-            lineWidth: 1,
+            color: '#8b5cf6', lineWidth: 1, ...bbOpts,
         });
         middleSeries.setData(middleData);
 
         const lowerSeries = this.chart.addLineSeries({
-            color: '#8b5cf6',
-            lineWidth: 1,
-            lineStyle: 2,
+            color: '#8b5cf6', lineWidth: 1, lineStyle: 2, ...bbOpts,
         });
         lowerSeries.setData(lowerData);
 
@@ -221,14 +269,14 @@ export class TradingChart {
         const newData = this.generateData(days);
         this.data = newData;
         this.candleSeries.setData(newData);
-        
+
         const volumeData = newData.map(d => ({
             time: d.time,
             value: d.volume || Math.random() * 1000000,
             color: d.close > d.open ? '#10b98150' : '#ef444450'
         }));
         this.volumeSeries.setData(volumeData);
-        
+
         this.chart.timeScale().fitContent();
     }
 

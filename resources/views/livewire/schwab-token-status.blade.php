@@ -25,6 +25,16 @@
         <div class="flex items-center justify-between">
             <span class="text-xs text-slate-400">Market Data API</span>
             <div class="flex items-center space-x-2">
+                @if($hasToken && $accessToken)
+                    <button
+                        onclick="copyToClipboard('{{ $accessToken }}', 'Market Data API token copied!')"
+                        class="text-slate-400 hover:text-emerald-400 transition-colors"
+                        title="Copy token">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                    </button>
+                @endif
                 @if($hasToken)
                     <div class="flex items-center space-x-1">
                         <div class="w-2 h-2 bg-emerald-400 rounded-full"></div>
@@ -43,6 +53,16 @@
         <div class="flex items-center justify-between">
             <span class="text-xs text-slate-400">Trader API (Accounts & Trading)</span>
             <div class="flex items-center space-x-2">
+                @if($traderApiConnected && $traderAccessToken)
+                    <button
+                        onclick="copyToClipboard('{{ $traderAccessToken }}', 'Trader API token copied!')"
+                        class="text-slate-400 hover:text-emerald-400 transition-colors"
+                        title="Copy token">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                    </button>
+                @endif
                 @if($traderApiConnected)
                     <div class="flex items-center space-x-1">
                         <div class="w-2 h-2 bg-emerald-400 rounded-full"></div>
@@ -67,7 +87,7 @@
             <!-- Streaming Info -->
             <div class="mt-3 pt-3 border-t border-slate-700/50 space-y-2">
                 <div class="text-xs font-medium text-slate-300 mb-2">Streaming Credentials</div>
-                
+
                 @if($streamerSocketUrl)
                     <div class="flex items-center justify-between">
                         <span class="text-xs text-slate-500">Socket URL</span>
@@ -105,7 +125,7 @@
             </div>
         @endif
     </div>
-    
+
     <script>
         function copyToClipboard(text, message) {
             navigator.clipboard.writeText(text).then(() => {
@@ -114,7 +134,7 @@
                 toast.className = 'fixed bottom-4 right-4 bg-emerald-500 text-white px-4 py-2 rounded-lg shadow-lg text-sm z-50';
                 toast.textContent = message;
                 document.body.appendChild(toast);
-                
+
                 setTimeout(() => {
                     toast.remove();
                 }, 2000);
@@ -132,7 +152,7 @@
         function appendToConsole(text, type = 'info') {
             const output = document.getElementById('consoleOutput');
             const line = document.createElement('div');
-            
+
             if (type === 'error') {
                 line.className = 'text-rose-400';
             } else if (type === 'success') {
@@ -142,7 +162,7 @@
             } else {
                 line.className = 'text-slate-300';
             }
-            
+
             line.textContent = text;
             output.appendChild(line);
             output.scrollTop = output.scrollHeight;
@@ -156,13 +176,13 @@
         async function startTunnel() {
             const startBtn = document.getElementById('startBtn');
             const stopBtn = document.getElementById('stopBtn');
-            
+
             startBtn.disabled = true;
             stopBtn.disabled = false;
-            
+
             clearConsole();
             appendToConsole('[' + new Date().toLocaleTimeString() + '] Starting tunnel...', 'info');
-            
+
             try {
                 const response = await fetch('/api/tunnel/start', {
                     method: 'POST',
@@ -170,12 +190,12 @@
                         'Content-Type': 'application/json'
                     }
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (data.success) {
                     appendToConsole('[' + new Date().toLocaleTimeString() + '] ' + data.message, 'success');
-                    
+
                     // Start polling for output
                     pollTunnelOutput();
                 } else {
@@ -193,9 +213,9 @@
         async function stopTunnel() {
             const startBtn = document.getElementById('startBtn');
             const stopBtn = document.getElementById('stopBtn');
-            
+
             appendToConsole('[' + new Date().toLocaleTimeString() + '] Stopping tunnel...', 'warning');
-            
+
             try {
                 const response = await fetch('/api/tunnel/stop', {
                     method: 'POST',
@@ -203,10 +223,10 @@
                         'Content-Type': 'application/json'
                     }
                 });
-                
+
                 const data = await response.json();
                 appendToConsole('[' + new Date().toLocaleTimeString() + '] ' + data.message, 'info');
-                
+
                 startBtn.disabled = false;
                 stopBtn.disabled = true;
             } catch (error) {
@@ -218,13 +238,13 @@
             try {
                 const response = await fetch('/api/tunnel/output');
                 const data = await response.json();
-                
+
                 if (data.output) {
                     data.output.forEach(line => {
                         appendToConsole(line, 'info');
                     });
                 }
-                
+
                 if (data.running) {
                     setTimeout(pollTunnelOutput, 1000);
                 } else {
@@ -242,18 +262,18 @@
         <a href="{{ $authUrl }}" class="block w-full px-3 py-2 text-xs font-medium text-center text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors">
             🔐 Authenticate Market Data API
         </a>
-        
+
         <a href="{{ $traderAuthUrl }}" class="block w-full px-3 py-2 text-xs font-medium text-center text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-colors">
             🔐 Authenticate Trader API
         </a>
-        
+
         <p class="text-xs text-slate-400 text-center">
             ⚠️ Two separate apps required - authenticate both
         </p>
-        
+
         <!-- Tunnel Console Button -->
-        <button 
-            onclick="toggleTunnelConsole()" 
+        <button
+            onclick="toggleTunnelConsole()"
             class="w-full px-3 py-2 text-xs font-medium text-white bg-purple-500 hover:bg-purple-600 rounded-lg transition-colors flex items-center justify-center space-x-2">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
@@ -261,7 +281,7 @@
             <span>Start Tunnel Console</span>
         </button>
     </div>
-    
+
     <!-- Tunnel Console -->
     <div id="tunnelConsole" class="hidden mt-4 bg-slate-900 rounded-lg border border-slate-700 overflow-hidden">
         <div class="flex items-center justify-between bg-slate-800 px-3 py-2 border-b border-slate-700">
@@ -279,14 +299,14 @@
             <div class="text-slate-500">Waiting to start tunnel...</div>
         </div>
         <div class="bg-slate-800 px-3 py-2 border-t border-slate-700 flex space-x-2">
-            <button 
-                onclick="startTunnel()" 
+            <button
+                onclick="startTunnel()"
                 id="startBtn"
                 class="px-3 py-1.5 text-xs font-medium text-white bg-emerald-500 hover:bg-emerald-600 rounded transition-colors">
                 Start
             </button>
-            <button 
-                onclick="stopTunnel()" 
+            <button
+                onclick="stopTunnel()"
                 id="stopBtn"
                 class="px-3 py-1.5 text-xs font-medium text-white bg-rose-500 hover:bg-rose-600 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled>

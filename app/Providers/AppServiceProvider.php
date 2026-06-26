@@ -2,7 +2,10 @@
 
 namespace App\Providers;
 
+use App\Contracts\MarketDataServiceInterface;
+use App\Services\AlpacaMarketDataService;
 use App\Services\SchwabAuthService;
+use App\Services\SchwabMarketDataService;
 use App\Services\SchwabOptionChainService;
 use App\Services\SchwabQuoteService;
 use Illuminate\Support\ServiceProvider;
@@ -14,6 +17,15 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // ─────────────────────────────────────────────────────────────────────
+        // Market data provider for backtesting — swap by commenting one line:
+        // $this->app->bind(MarketDataServiceInterface::class, SchwabMarketDataService::class);
+        $this->app->bind(MarketDataServiceInterface::class, fn () => new AlpacaMarketDataService(
+            apiKey:    (string) config('services.alpaca.key', ''),
+            apiSecret: (string) config('services.alpaca.secret', ''),
+        ));
+        // ─────────────────────────────────────────────────────────────────────
+
         // Register Schwab services with configuration
         $this->app->singleton(SchwabAuthService::class, function ($app) {
             return new SchwabAuthService(

@@ -18,10 +18,11 @@ class SchwabTokenStatus extends Component
     public ?string $traderAuthUrl = null;
     public ?string $accessToken = null;
     public ?string $refreshToken = null;
-    
+
     // Trader API Status
     public bool $traderApiConnected = false;
     public ?string $traderApiError = null;
+    public ?string $traderAccessToken = null;
     public ?string $streamerSocketUrl = null;
     public ?string $schwabClientCustomerId = null;
     public ?string $schwabClientCorrelId = null;
@@ -38,10 +39,10 @@ class SchwabTokenStatus extends Component
     {
         $authService = SchwabAuthService::make();
         $traderAuthService = SchwabTraderAuthService::make();
-        
+
         $this->accessToken = $authService->getAccessToken();
         $this->refreshToken = Cache::get('schwab_market_refresh_token');
-        
+
         $this->hasToken = $this->accessToken !== null;
         $this->hasRefreshToken = $authService->hasRefreshToken();
         $this->authUrl = route('schwab.redirect'); // Market Data API
@@ -52,16 +53,17 @@ class SchwabTokenStatus extends Component
     {
         // Use Trader API service
         $traderAuthService = SchwabTraderAuthService::make();
-        
+
         // Check if Trader API is configured
         if (!config('services.schwab_trader.app_key')) {
             $this->traderApiConnected = false;
             $this->traderApiError = 'Trader API not configured. Add SCHWAB_TRADER_APP_KEY to .env file. See SCHWAB_SETUP.md for instructions.';
             return;
         }
-        
+
         $traderToken = $traderAuthService->getAccessToken();
-        
+        $this->traderAccessToken = $traderToken;
+
         if (!$traderToken) {
             $this->traderApiConnected = false;
             $this->traderApiError = 'No Trader API token available. Please authenticate using the green button below.';
@@ -86,10 +88,10 @@ class SchwabTokenStatus extends Component
 
             if ($response->successful()) {
                 $data = $response->json();
-                
+
                 $this->traderApiConnected = true;
                 $this->traderApiError = null;
-                
+
                 // Extract streaming credentials
                 $streamerInfo = $data['streamerInfo'][0] ?? null;
                 if ($streamerInfo) {
@@ -98,7 +100,7 @@ class SchwabTokenStatus extends Component
                     $this->schwabClientCorrelId = $streamerInfo['schwabClientCorrelId'] ?? null;
                     $this->schwabClientChannel = $streamerInfo['schwabClientChannel'] ?? null;
                     $this->schwabClientFunctionId = $streamerInfo['schwabClientFunctionId'] ?? null;
-                    
+
                     // Cache streaming credentials
                     Cache::put('schwab_streaming_credentials', [
                         'streamerSocketUrl' => $this->streamerSocketUrl,
@@ -110,15 +112,15 @@ class SchwabTokenStatus extends Component
                 }
             } else {
                 $this->traderApiConnected = false;
-                
+
                 if ($response->status() === 401) {
                     $this->traderApiError = 'Unauthorized: Token expired or invalid. Click "Refresh Token Now" to get a new token.';
-                    
+
                     // Try to refresh automatically
                     $authService = SchwabAuthService::make();
                     $authService->clearToken();
                     $newToken = $authService->getAccessToken();
-                    
+
                     if ($newToken) {
                         $this->checkTokenStatus();
                         $this->checkTraderApiStatus();
@@ -141,21 +143,21 @@ class SchwabTokenStatus extends Component
     {
         try {
             $authService = SchwabAuthService::make();
-            
+
             // Clear current token
             $authService->clearToken();
-            
+
             // Try to get new token (will use refresh token)
             $newToken = $authService->getAccessToken();
-            
+
             \Log::info('Token refresh attempt', [
                 'success' => $newToken !== null,
                 'token_length' => $newToken ? strlen($newToken) : 0,
             ]);
-            
+
             $this->checkTokenStatus();
             $this->checkTraderApiStatus();
-            
+
             if ($this->hasToken) {
                 session()->flash('message', 'Token refreshed successfully!');
             } else {

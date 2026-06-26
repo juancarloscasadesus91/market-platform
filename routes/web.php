@@ -24,6 +24,34 @@ Route::get('/trading-journal', function () {
     return view('trading-journal');
 })->name('trading-journal');
 
+Route::get('/advanced-tape-flow', function () {
+    return view('advanced-tape-flow');
+})->name('advanced-tape-flow');
+
+Route::get('/backtest', function () {
+    return view('backtest');
+})->name('backtest');
+
+Route::get('/strategy-lab', function () {
+    return view('strategy-lab');
+})->name('strategy-lab');
+
+Route::get('/schwab-account', function () {
+    return view('schwab-account');
+})->name('schwab.account');
+
+Route::get('/alpaca-paper', function () {
+    return view('alpaca-paper');
+})->name('alpaca.paper');
+
+Route::get('/alpaca-strategy-lab', function () {
+    return view('alpaca-strategy-lab');
+})->name('alpaca.strategy-lab');
+
+Route::get('/strategy-bots', function () {
+    return view('strategy-bots');
+})->name('strategy-bots');
+
 Route::get('/trading-journal/export/excel', [\App\Http\Controllers\TradingJournalExportController::class, 'exportExcel'])
     ->name('trading-journal.export.excel');
 Route::get('/trading-journal/export/pdf', [\App\Http\Controllers\TradingJournalExportController::class, 'exportPDF'])
@@ -34,11 +62,11 @@ Route::prefix('auth/schwab')->group(function () {
     // Market Data API
     Route::get('redirect', [SchwabAuthController::class, 'redirect'])->name('schwab.redirect');
     Route::get('callback', [SchwabAuthController::class, 'callback'])->name('schwab.callback');
-    
+
     // Trader API
     Route::get('trader/redirect', [SchwabAuthController::class, 'traderRedirect'])->name('schwab.trader.redirect');
     Route::get('trader/callback', [SchwabAuthController::class, 'traderCallback'])->name('schwab.trader.callback');
-    
+
     Route::post('disconnect', [SchwabAuthController::class, 'disconnect'])->name('schwab.disconnect');
 });
 
@@ -49,3 +77,6 @@ Route::prefix('api/tunnel')->withoutMiddleware([\Illuminate\Foundation\Http\Midd
     Route::get('output', [\App\Http\Controllers\TunnelController::class, 'output']);
     Route::get('status', [\App\Http\Controllers\TunnelController::class, 'status']);
 });
+
+// Advanced Tape Flow API routes
+require __DIR__.'/api_tape_flow.php';
